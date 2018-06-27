@@ -1,2 +1,2 @@
 # lgrep
-a search tool for logfiles that improves on findstr.
+A search tool for logfiles that improves on findstr.
