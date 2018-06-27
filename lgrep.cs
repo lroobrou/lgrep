@@ -1,3 +1,4 @@
+//
 // dir /b /s "%windir%\microsoft.net\*csc.exe"
 // C:\Windows\microsoft.net\Framework\v2.0.50727\csc.exe lgrep.cs /d:EXTERNALCODE /o
 // C:\Windows\microsoft.net\Framework\v2.0.50727\csc.exe lgrep.cs /d:EXTERNALCODE /DEBUG /define:DEBUG;TRACE
