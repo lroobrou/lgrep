@@ -839,6 +839,7 @@ public class grepper
             else if (IsOptionSwitch(args[i], "debug")) {
                 debug = true;
             }
+            // FIXME: the first unkown options is used as a searchstring, instead an error should be displayed
             else if (searchString == null) {
                 searchString = args[i];
                 searchStrings.AddRange(searchString.Split());
