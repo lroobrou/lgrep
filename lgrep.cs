@@ -1,4 +1,4 @@
-// porttowin
+// porttowin version
 // dir /b /s "%windir%\microsoft.net\*csc.exe"
 // C:\Windows\microsoft.net\Framework\v2.0.50727\csc.exe lgrep.cs /d:EXTERNALCODE /o
 // C:\Windows\microsoft.net\Framework\v2.0.50727\csc.exe lgrep.cs /d:EXTERNALCODE /DEBUG /define:DEBUG;TRACE
@@ -685,7 +685,7 @@ public class grepper
             }
             else if (IsTextSwitch(args[i], "C")) {
                searchString = TextSwitchGetValue(args[i]);
-               searchStrings.Append(TextSwitchGetValue(args[i]));
+               searchStrings.Add(TextSwitchGetValue(args[i]));
             }
             else if (IsOptionSwitch(args[i], "R1")) {
                 searchMode = SearchMode.regexUniLine;

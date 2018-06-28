@@ -1,3 +1,4 @@
-.lgrep.cs.swp
-lgrep.dbg
-lgrep.pdb
+*.swp
+*.dbg
+*.pdb
+*.mdb
