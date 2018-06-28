@@ -450,29 +450,34 @@ public class grepper
 
             // get options from lgreprc
             string homeDir = Environment.GetEnvironmentVariable("HOME");
+            string rcFileName;
             Debug.WriteLine(String.Format("Home directory: {0}", homeDir));
 
-            string rcFileName = Path.Combine(homeDir, ".lgreprc");
-            if (File.Exists(rcFileName)) {
-                char[] charSeparators = new char[] {'\n','\r',' ','\t'};
-                string rcOptions = File.ReadAllText(rcFileName);
-                string[] rcOptionsList = rcOptions.Split(charSeparators, StringSplitOptions.RemoveEmptyEntries);
-                Debug.WriteLine(String.Format("Options read from lgreprc : {0}", string.Join("|", rcOptionsList)));
-                arguments.AddRange(rcOptionsList);
-            }
+            try {
+                rcFileName = Path.Combine(homeDir, ".lgreprc");
+                if (File.Exists(rcFileName)) {
+                    char[] charSeparators = new char[] {'\n','\r',' ','\t'};
+                    string rcOptions = File.ReadAllText(rcFileName);
+                    string[] rcOptionsList = rcOptions.Split(charSeparators, StringSplitOptions.RemoveEmptyEntries);
+                    Debug.WriteLine(String.Format("Options read from lgreprc : {0}", string.Join("|", rcOptionsList)));
+                    arguments.AddRange(rcOptionsList);
+                }
+            } catch {}
 
             // string exeDir = System.Reflection.Assembly.GetEntryAssembly().Location;
             string exeDir = AppDomain.CurrentDomain.BaseDirectory;
             Debug.WriteLine(String.Format("Exe directory: {0}", exeDir));
 
-            rcFileName = Path.Combine(exeDir, ".lgreprc");
-            if (File.Exists(rcFileName)) {
-                char[] charSeparators = new char[] {'\n','\r',' ','\t'};
-                string rcOptions = File.ReadAllText(rcFileName);
-                string[] rcOptionsList = rcOptions.Split(charSeparators, StringSplitOptions.RemoveEmptyEntries);
-                Debug.WriteLine(String.Format("Options read from lgreprc : {0}", string.Join("|", rcOptionsList)));
-                arguments.AddRange(rcOptionsList);
-            }
+            try {
+                rcFileName = Path.Combine(exeDir, ".lgreprc");
+                if (File.Exists(rcFileName)) {
+                    char[] charSeparators = new char[] {'\n','\r',' ','\t'};
+                    string rcOptions = File.ReadAllText(rcFileName);
+                    string[] rcOptionsList = rcOptions.Split(charSeparators, StringSplitOptions.RemoveEmptyEntries);
+                    Debug.WriteLine(String.Format("Options read from lgreprc : {0}", string.Join("|", rcOptionsList)));
+                    arguments.AddRange(rcOptionsList);
+                }
+            } catch {}
 
             // get options from the environment
             string environmentOptions = Environment.GetEnvironmentVariable("LGREP_OPTIONS");
@@ -513,6 +518,22 @@ public class grepper
         catch (Exception e) {
             ConsoleEx.WriteErrorLine("Uncaught error: {0}", e.Message);
 #if DEBUG
+            StackTrace st = new StackTrace();
+            StackFrame sf = st.GetFrame(0);
+            ConsoleEx.WriteErrorLine("");
+            ConsoleEx.WriteErrorLine("Exception raised {0}: {1}", e, e.Message);
+            ConsoleEx.WriteErrorLine("  Exception in method: ");
+            ConsoleEx.WriteErrorLine("      {0}", sf.GetMethod());
+
+            if (st.FrameCount > 1)
+            {
+                // Display the highest-level function call  
+                // in the trace.
+                sf = st.GetFrame(st.FrameCount-1);
+                ConsoleEx.WriteErrorLine("  Original function call at top of call stack):");
+                ConsoleEx.WriteErrorLine("      {0}", sf.GetMethod());
+            }
+
             throw e;
 #endif
         }
@@ -1250,7 +1271,8 @@ Reference.");
         LStreamReader lfr = s as LStreamReader;
         if (lfr != null) currentLineNumber = lfr.CurrentLine;
 
-        ConsoleEx.StatusLine = string.Format("processing file {0}", Util.FormatFileName(file));
+        if (f != null)
+            ConsoleEx.StatusLine = string.Format("processing file {0}", Util.FormatFileName(file));
 
         while ((text = s.ReadLine()) != null) {
             currentLineNumber++;
@@ -1258,7 +1280,9 @@ Reference.");
 
             // TODO: what if f == null? Is that the case when readong from stdin?
             /* if (showProgress && spinner.hasChanged() && f != null) { */
-            ConsoleEx.StatusLine = string.Format("processing file ({0:P0}) {1}", (double)f.Position/(double)f.Length, Util.FormatFileName(file));
+            if (showProgress && f != null) {
+                ConsoleEx.StatusLine = string.Format("processing file ({0:P0}) {1}", (double)f.Position/(double)f.Length, Util.FormatFileName(file));
+            }
 
             if (m.matches (text) ^ showNonMatching) {
                 if (!fileNamePrinted && (showOnlyFileName || showFileNameOnce && !showCount)) {
@@ -1482,8 +1506,12 @@ public class ConsoleSpinner
             /* sequence = "▁▃▅▆▇▇▆▅▃" */
         else if (sSequence == "flip")
             sequence = new [] {"_", "_", "_", "-", "`", "`", "'", "´", "-", "_", "_", "_"};
+        else if (sSequence == "flowers")
+            sequence = GetStringArray("❀❁❂❃❄❅❆❇❈");
         else if (sSequence == "dots2")
             sequence = GetStringArray("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏");
+        else if (sSequence == "smiley")
+            sequence = GetStringArray("😀😁😃😄");
         else if (sSequence == "dots3")
             sequence = new [] {"(*---------)",
                                "(-*--------)",
@@ -1602,17 +1630,39 @@ public class TreeWalker : IEnumerable<string>
     {
         foreach (string d in r) {
             string d2 = d.TrimEnd(Path.DirectorySeparatorChar);
-            string direname = Path.GetDirectoryName(d2);
-            string basename = Path.GetFileName(d2);
+            string direname;
+            string basename;
+            try {
+                direname = Path.GetDirectoryName(d2);
+                basename = Path.GetFileName(d2);
+            } catch (System.ArgumentException) {
+                direname = ".";
+                basename = d2;
+            }
+            if (direname == "")
+                direname = ".";
 
             var pattern = new TreeWalkerPattern(basename);
             Debug.WriteLine(String.Format("TreeWalker: adding directory {0} : {1}", direname, basename));
 
             if (pattern.isGlob) {
-                foreach(string dir in System.IO.Directory.GetDirectories(direname)) {
-                    if (pattern.Matches(Path.GetFileName(dir))) {
-                        directoriesToScan.Add(dir);
+                try {
+                    foreach(string dir in System.IO.Directory.GetDirectories(direname)) {
+                        if (pattern.Matches(Path.GetFileName(dir))) {
+                            directoriesToScan.Add(dir);
+                        }
                     }
+                }
+                catch (UnauthorizedAccessException e) {                    
+                    ConsoleEx.WriteErrorLine(e.Message);
+                    continue;
+                } catch (System.IO.DirectoryNotFoundException e) {
+                    ConsoleEx.WriteErrorLine(e.Message);
+                    continue;
+                } catch (System.ArgumentException e) {
+                    ConsoleEx.WriteErrorLine(e.Message);
+                    ConsoleEx.WriteErrorLine(String.Format("base: {0}, dir: {1}", basename, direname));
+                    continue;
                 }
             } else {
                 directoriesToScan.Add(d);
@@ -1674,6 +1724,10 @@ public class TreeWalker : IEnumerable<string>
             } catch (System.IO.DirectoryNotFoundException e) {
                 ConsoleEx.WriteErrorLine(e.Message);
                 continue;
+            } catch (System.ArgumentException e) {
+                ConsoleEx.WriteErrorLine(e.Message);
+                ConsoleEx.WriteErrorLine(String.Format("Currentdir: {0}", currentDir));
+                continue;
             }
 
             string[] files = null;
@@ -1687,6 +1741,8 @@ public class TreeWalker : IEnumerable<string>
                 continue;
             }
 
+            // Perform the required action on each file here. 
+            // Modify this block to perform your required task. 
             foreach (string file in files) {
                 try {
                     match = FileMatches(file);
@@ -2348,6 +2404,8 @@ public static class Util {
     public static string FormatFileName(string file) {
         //return Path.GetFileName(file);
         Debug.WriteLine("FormatFileName:" + file + ":" + Environment.CurrentDirectory);
+        if (file == "<stdin>") return "<stdin>";
         return Util.RelativePath(file);
     }
+
 }
