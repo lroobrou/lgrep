@@ -98,6 +98,17 @@ public static class ConsoleEx {
         }
     }
 
+    public static void Write(string line, params object[] args) {
+        if (grepper.showProgress) {
+            lock(l) {
+                Console.Write(line, args);
+            }
+        }
+        else {
+            Console.Write(line, args);
+        }
+    }
+
     public static void WriteLine(string line, params object[] args) {
         if (grepper.showProgress) {
             lock(l) {
@@ -382,6 +393,11 @@ public class grepper
     //   keep original size of the file and stop when that is reached 
     //       i.e. no endless loop on lgrep.dbg
     //            no endless loop when redirecting output to a file
+    //   when lines are really long, find a way display only part of them
+    //   fix xml search with the spinner (needs poper locks etc.)
+    //   fix crash when run fro wsl.
+    //   the lgrep.exe process does not always stop automatically on windows??, 
+    //   perhaps when an exception is thrown -> call thread.abort
 
     List<string>searchDirectories       = new List<string>(10);
     List<string>searchMasks             = new List<string>(10);
@@ -451,28 +467,36 @@ public class grepper
 
             // get options from lgreprc
             string homeDir = Environment.GetEnvironmentVariable("HOME");
+            string rcFileName;
             Debug.WriteLine(String.Format("Home directory: {0}", homeDir));
 
-            string rcFileName = Path.Combine(homeDir, ".lgreprc");
-            if (File.Exists(rcFileName)) {
-                char[] charSeparators = new char[] {'\n','\r',' ','\t'};
-                string rcOptions = File.ReadAllText(rcFileName);
-                string[] rcOptionsList = rcOptions.Split(charSeparators, StringSplitOptions.RemoveEmptyEntries);
-                Debug.WriteLine(String.Format("Options read from lgreprc : {0}", string.Join("|", rcOptionsList)));
-                arguments.AddRange(rcOptionsList);
+            try {
+                rcFileName = Path.Combine(homeDir, ".lgreprc");
+                if (File.Exists(rcFileName)) {
+                    char[] charSeparators = new char[] {'\n','\r',' ','\t'};
+                    string rcOptions = File.ReadAllText(rcFileName);
+                    string[] rcOptionsList = rcOptions.Split(charSeparators, StringSplitOptions.RemoveEmptyEntries);
+                    Debug.WriteLine(String.Format("Options read from lgreprc : {0}", string.Join("|", rcOptionsList)));
+                    arguments.AddRange(rcOptionsList);
+                }
+            } catch (Exception) {
+                // TODO: On windows this seems to throw an argument exception, need to find out why exactly.
             }
 
             // string exeDir = System.Reflection.Assembly.GetEntryAssembly().Location;
             string exeDir = AppDomain.CurrentDomain.BaseDirectory;
             Debug.WriteLine(String.Format("Exe directory: {0}", exeDir));
 
-            rcFileName = Path.Combine(exeDir, ".lgreprc");
-            if (File.Exists(rcFileName)) {
-                char[] charSeparators = new char[] {'\n','\r',' ','\t'};
-                string rcOptions = File.ReadAllText(rcFileName);
-                string[] rcOptionsList = rcOptions.Split(charSeparators, StringSplitOptions.RemoveEmptyEntries);
-                Debug.WriteLine(String.Format("Options read from lgreprc : {0}", string.Join("|", rcOptionsList)));
-                arguments.AddRange(rcOptionsList);
+            try {
+                rcFileName = Path.Combine(exeDir, ".lgreprc");
+                if (File.Exists(rcFileName)) {
+                    char[] charSeparators = new char[] {'\n','\r',' ','\t'};
+                    string rcOptions = File.ReadAllText(rcFileName);
+                    string[] rcOptionsList = rcOptions.Split(charSeparators, StringSplitOptions.RemoveEmptyEntries);
+                    Debug.WriteLine(String.Format("Options read from lgreprc : {0}", string.Join("|", rcOptionsList)));
+                    arguments.AddRange(rcOptionsList);
+                }
+            } catch (Exception) { 
             }
 
             // get options from the environment
@@ -1213,18 +1237,21 @@ Reference.");
         XmlNodeList nodeList = root.SelectNodes(xpathQuery);
         foreach (XmlNode node in nodeList)
         {
+            // TODO: fix this, it is not thread safe
             if (m.matches (node.OuterXml)) {
                 if (showOnlyFileName) {
-                    Console.WriteLine("\r{0}", formattedFileName);
+                    ConsoleEx.WriteLine("\r{0}", formattedFileName);
                     break;
                 }
 
                 if (!showNonMatching) {
                     if (showFileName == true)
-                        Console.Write ("{0}:", formattedFileName);
+                        ConsoleEx.SetFileColor();
+                        ConsoleEx.Write ("{0}:", formattedFileName);
+                        ConsoleEx.ResetColor();
 
                     if (xmlPrettyPrint) {
-                        Console.WriteLine("", formattedFileName);
+                        ConsoleEx.WriteLine("", formattedFileName);
                         m.printLineColor(PrettyXML(node.OuterXml));
                     }
                     else {
@@ -1233,8 +1260,11 @@ Reference.");
                 }
             } else {
                 if (showNonMatching) {
-                    if (showFileName == true)
-                        Console.Write ("{0}:", formattedFileName);
+                    if (showFileName == true) {
+                        ConsoleEx.SetFileColor();
+                        ConsoleEx.Write ("{0}:", formattedFileName);
+                        ConsoleEx.ResetColor();
+                    }
                     m.printLineColor(node.OuterXml);
                 }
             }
