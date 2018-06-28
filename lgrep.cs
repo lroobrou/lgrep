@@ -683,6 +683,10 @@ public class grepper
             else if (IsOptionSwitch(args[i], "R")) {
                 searchMode = SearchMode.regex;
             }
+            else if (IsTextSwitch(args[i], "C")) {
+               searchString = TextSwitchGetValue(args[i]);
+               searchStrings.Append(TextSwitchGetValue(args[i]));
+            }
             else if (IsOptionSwitch(args[i], "R1")) {
                 searchMode = SearchMode.regexUniLine;
             }
