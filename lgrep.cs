@@ -39,7 +39,7 @@ public static class ConsoleEx {
     private static bool _statusline_drawn = false;
     private static bool _draw_statusline = false;
     private static int _statusline_length = 0;
-    public static ConsoleSpinner spinner = new ConsoleSpinner("dots2", 130);
+    public static ConsoleSpinner spinner = new ConsoleSpinner("slashes", 130);
     private static bool keepThrobbing = true;
 
     static ConsoleEx() {
@@ -537,6 +537,8 @@ public class grepper
         }
         catch (Exception e) {
             ConsoleEx.WriteErrorLine("Uncaught error: {0}", e.Message);
+            Util.PrintStackTrace(e);
+            ConsoleEx.CancelThrobber();
 #if DEBUG
             throw e;
 #endif
@@ -1262,7 +1264,7 @@ Reference.");
                 if (showNonMatching) {
                     if (showFileName == true) {
                         ConsoleEx.SetFileColor();
-                        ConsoleEx.Write ("{0}:", formattedFileName);
+                        ConsoleEx.Write ("\r{0}:", formattedFileName);
                         ConsoleEx.ResetColor();
                     }
                     m.printLineColor(node.OuterXml);
@@ -1281,15 +1283,18 @@ Reference.");
         LStreamReader lfr = s as LStreamReader;
         if (lfr != null) currentLineNumber = lfr.CurrentLine;
 
-        ConsoleEx.StatusLine = string.Format("processing file {0}", Util.FormatFileName(file));
+        if (showProgress) {
+            ConsoleEx.StatusLine = string.Format("processing file {0}", Util.FormatFileName(file));
+        }
 
         while ((text = s.ReadLine()) != null) {
             currentLineNumber++;
             /* Thread.Sleep(10); */
 
             // TODO: what if f == null? Is that the case when readong from stdin?
-            /* if (showProgress && spinner.hasChanged() && f != null) { */
-            ConsoleEx.StatusLine = string.Format("processing file ({0:P0}) {1}", (double)f.Position/(double)f.Length, Util.FormatFileName(file));
+            if (showProgress && f != null) { 
+                ConsoleEx.StatusLine = string.Format("processing file ({0:P0}) {1}", (double)f.Position/(double)f.Length, Util.FormatFileName(file));
+            }
 
             if (m.matches (text) ^ showNonMatching) {
                 if (!fileNamePrinted && (showOnlyFileName || showFileNameOnce && !showCount)) {
@@ -2317,6 +2322,24 @@ public class LStreamReader : StreamReader
 public static class Util {
     private static string prevpaths = null;
 
+    public static void PrintStackTrace(Exception e) {
+        StackTrace st = new StackTrace();
+        StackFrame sf = st.GetFrame(0);
+        ConsoleEx.WriteErrorLine("");
+        ConsoleEx.WriteErrorLine("Exception raised {0}: {1}", e, e.Message);
+        ConsoleEx.WriteErrorLine("  Exception in method: ");
+        ConsoleEx.WriteErrorLine("      {0}", sf.GetMethod());
+
+        if (st.FrameCount > 1)
+        {
+            // Display the highest-level function call  
+            // in the trace.
+            sf = st.GetFrame(st.FrameCount-1);
+            ConsoleEx.WriteErrorLine("  Original function call at top of call stack):");
+            ConsoleEx.WriteErrorLine("      {0}", sf.GetMethod());
+        }
+    }
+
     public static string RelativePath(string path)
     {
         return RelativePath(Environment.CurrentDirectory, path);
@@ -2377,8 +2400,17 @@ public static class Util {
     }
 
     public static string FormatFileName(string file) {
-        //return Path.GetFileName(file);
-        Debug.WriteLine("FormatFileName:" + file + ":" + Environment.CurrentDirectory);
-        return Util.RelativePath(file);
+        try { 
+            if (file == null) return "";
+            if (file == "<stdin>") return "<stdin>";
+            if (file == "") return "";
+
+            //return Path.GetFileName(file);
+            Debug.WriteLine("FormatFileName:" + file + ":" + Environment.CurrentDirectory);
+            return Util.RelativePath(file);
+        } catch (Exception) {
+            ConsoleEx.WriteErrorLine("Error when formatting path {0}", file);
+            return file;
+        }
     }
 }
