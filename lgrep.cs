@@ -66,14 +66,35 @@ public static class ConsoleEx {
     [DllImport("kernel32.dll")]
         private static extern IntPtr GetStdHandle(StdHandle std);
 #else
+    private enum FileType { Unknown, Disk, Char, Pipe };
+    private enum StdHandle { Stdin = -10, Stdout = -11, Stderr = -12 };
+    [DllImport("kernel32.dll")]
+        private static extern FileType GetFileType(IntPtr hdl);
+    [DllImport("kernel32.dll")]
+        private static extern IntPtr GetStdHandle(StdHandle std);
+
     public static bool IsOutputRedirected {
         //get { return IsConsoleSizeZero && !Console.KeyAvailable; }
-        get { return Console.IsOutputRedirected; }
+        // TODO: The system.missingmethodexception is sometimes thrown, but this try catch
+        // doesn't seem to catch that ? 
+        get {
+            try {
+                return Console.IsOutputRedirected;
+            } catch (System.MissingMethodException) { // older .NET versions
+                return FileType.Char != GetFileType(GetStdHandle(StdHandle.Stdin)); 
+            }
+        }
     }
 
     public static bool IsInputRedirected {
         //get { return IsConsoleSizeZero && Console.KeyAvailable; }
-        get { return Console.IsInputRedirected; }
+        get { 
+            try {
+                return Console.IsInputRedirected;
+            } catch (System.MissingMethodException) { // older .NET versions
+                return FileType.Char != GetFileType(GetStdHandle(StdHandle.Stdout)); 
+            }
+        }
     }
 
     private static bool IsConsoleSizeZero {
@@ -81,7 +102,7 @@ public static class ConsoleEx {
             try {
                 return (0 == (Console.WindowHeight + Console.WindowWidth));
             }
-            catch (Exception){
+            catch (Exception) {
                 return true;
             }
         }
