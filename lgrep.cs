@@ -59,8 +59,8 @@ public static class ConsoleEx {
     }
 
     // P/Invoke:
-    private enum FileType { Unknown, Disk, Char, Pipe };
-    private enum StdHandle { Stdin = -10, Stdout = -11, Stderr = -12 };
+    //private enum FileType { Unknown, Disk, Char, Pipe };
+    //private enum StdHandle { Stdin = -10, Stdout = -11, Stderr = -12 };
     [DllImport("kernel32.dll")]
         private static extern FileType GetFileType(IntPtr hdl);
     [DllImport("kernel32.dll")]
@@ -860,7 +860,7 @@ public class grepper
             else if (IsOptionSwitch(args[i], "debug")) {
                 debug = true;
             }
-            // FIXME: the first unkown options is used as a searchstring, instead an error should be displayed
+            // FIXME: the first unkown option is used as a searchstring, instead an error should be displayed
             else if (searchString == null) {
                 searchString = args[i];
                 searchStrings.AddRange(searchString.Split());
@@ -1317,7 +1317,8 @@ Reference.");
             currentLineNumber++;
             /* Thread.Sleep(10); */
 
-            // TODO: what if f == null? Is that the case when readong from stdin?
+            // TODO: what if f == null? Is that the case when reading from stdin?
+            // Is this line slowing down the search when /progress is activated?
             if (showProgress && f != null) { 
                 ConsoleEx.StatusLine = string.Format("processing file ({0:P0}) {1}", (double)f.Position/(double)f.Length, Util.FormatFileName(file));
             }

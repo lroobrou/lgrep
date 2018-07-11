@@ -2,3 +2,5 @@
 *.dbg
 *.pdb
 *.mdb
+lgrep.exe
+tags
