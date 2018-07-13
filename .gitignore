@@ -1,1 +1,9 @@
 .lgrep.cs.swp
+tags
+unittest/
+*.swp
+*.dbg
+*.pdb
+*.mdb
+*.dll
+*.exe
