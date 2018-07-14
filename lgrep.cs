@@ -1,4 +1,3 @@
-// porttowin version
 // dir /b /s "%windir%\microsoft.net\*csc.exe"
 // C:\Windows\microsoft.net\Framework\v2.0.50727\csc.exe lgrep.cs /d:EXTERNALCODE /o
 // C:\Windows\microsoft.net\Framework\v2.0.50727\csc.exe lgrep.cs /d:EXTERNALCODE /DEBUG /define:DEBUG;TRACE
@@ -155,37 +154,45 @@ public static class ConsoleEx {
     }
     
     public static void SetMatchColor() {
-        if (IsLinux) {
-            Console.Write(AnsiColorCodes.BrightRed);
-        } else {
-            Console.ForegroundColor = grepper.foregroundColor;
-            Console.BackgroundColor = grepper.backgroundColor;
+        if (grepper.showColor) {
+            if (IsLinux) {
+                Console.Write(AnsiColorCodes.BrightRed);
+            } else {
+                Console.ForegroundColor = grepper.foregroundColor;
+                Console.BackgroundColor = grepper.backgroundColor;
+            }
         }
     }
 
     public static void SetFileColor() {
-        if (IsLinux) {
-            Console.Write(AnsiColorCodes.BrightGreen);
-        } else {
-            Console.ForegroundColor = grepper.fileForegroundColor;
-            Console.BackgroundColor = grepper.fileBackgroundColor;
+        if (grepper.showColor) {
+            if (IsLinux) {
+                Console.Write(AnsiColorCodes.BrightGreen);
+            } else {
+                Console.ForegroundColor = grepper.fileForegroundColor;
+                Console.BackgroundColor = grepper.fileBackgroundColor;
+            }
         }
     }
 
     public static void SetControlColor() {
-        if (IsLinux) {
-            Console.Write(AnsiColorCodes.BrightYellow);
-        } else {
-            Console.ForegroundColor = grepper.controlForegroundColor;
-            Console.BackgroundColor = grepper.controlBackgroundColor;
+        if (grepper.showColor) {
+            if (IsLinux) {
+                Console.Write(AnsiColorCodes.BrightYellow);
+            } else {
+                Console.ForegroundColor = grepper.controlForegroundColor;
+                Console.BackgroundColor = grepper.controlBackgroundColor;
+            }
         }
     }
 
     public static void ResetColor() {
-        if (IsLinux) {
-            Console.Write(AnsiColorCodes.Reset);
-        } else {
-            Console.ResetColor();
+        if (grepper.showColor) {
+            if (IsLinux) {
+                Console.Write(AnsiColorCodes.Reset);
+            } else {
+                Console.ResetColor();
+            }
         }
     }
 
@@ -416,9 +423,10 @@ public class grepper
     //            no endless loop when redirecting output to a file
     //   when lines are really long, find a way display only part of them
     //   fix xml search with the spinner (needs poper locks etc.)
-    //   fix crash when run fro wsl.
+    //   fix crash when run from wsl.
     //   the lgrep.exe process does not always stop automatically on windows??, 
     //   perhaps when an exception is thrown -> call thread.abort
+    //   add fix: when a file with path is given as argument, a message " no files processed" is shown incorrectly
 
     List<string>searchDirectories       = new List<string>(10);
     List<string>searchMasks             = new List<string>(10);
@@ -450,6 +458,7 @@ public class grepper
     string searchString                 = null;
     string searchStringFile             = null;
     string xpathQuery                   = null;
+    public static bool showColor        = true;
 
 #if EXTERNALCODE 
     string codeWalkerFileName       = null;
@@ -551,16 +560,32 @@ public class grepper
             if (g.inputRedirected)
                 g.RunStdIn();
             else
-                g.Run(args);
+                g.Run();
         }
         catch (System.Security.SecurityException) {
-            g.Run(args);
+            g.Run();
         }
         catch (Exception e) {
             ConsoleEx.WriteErrorLine("Uncaught error: {0}", e.Message);
             Util.PrintStackTrace(e);
             ConsoleEx.CancelThrobber();
 #if DEBUG
+            StackTrace st = new StackTrace();
+            StackFrame sf = st.GetFrame(0);
+            ConsoleEx.WriteErrorLine("");
+            ConsoleEx.WriteErrorLine("Exception raised {0}: {1}", e, e.Message);
+            ConsoleEx.WriteErrorLine("  Exception in method: ");
+            ConsoleEx.WriteErrorLine("      {0}", sf.GetMethod());
+
+            if (st.FrameCount > 1)
+            {
+                // Display the highest-level function call  
+                // in the trace.
+                sf = st.GetFrame(st.FrameCount-1);
+                ConsoleEx.WriteErrorLine("  Original function call at top of call stack):");
+                ConsoleEx.WriteErrorLine("      {0}", sf.GetMethod());
+            }
+
             throw e;
 #endif
         }
@@ -669,7 +694,11 @@ public class grepper
         return Result;
     }
 
-    private grepper (string[] args)
+    public grepper (): this(new string[] {})
+    {
+    }
+
+    public grepper (string[] args)
     {
         // Parse arguments
         int i = 0;
@@ -725,7 +754,6 @@ public class grepper
                 xpathQuery = TextSwitchGetValue(args[i]);
                 try
                 {
-                    //XPathExpression expr = XPathExpression.Compile(xpathQuery);
                     XPathExpression.Compile(xpathQuery);
                 }
                 catch (XPathException e)
@@ -765,6 +793,9 @@ public class grepper
             }
             else if (IsOptionSwitch(args[i], "L")) {
                 showLineNumbers = true;
+            }
+            else if (IsOptionSwitch(args[i], "nocolor")) {
+                showColor = false;
             }
             else if (IsOptionSwitch(args[i], "progress")) {
                 showProgress = true;
@@ -812,19 +843,24 @@ public class grepper
                 printUsageAndStop = true;
             }
             else if (IsTextSwitch(args[i], "lines")) {
-                /* Console.WriteLine("checking out a lines textswitch"); */
                 try {
                     string lineString = TextSwitchGetValue(args[i]);
                     int indexOfComma = lineString.IndexOf(",");
                     if (indexOfComma >= 0) {
                         string one = lineString.Substring(0, indexOfComma);
                         string two = lineString.Substring(indexOfComma + 1);
-                        /* Console.WriteLine("one = {0}, two = {1}", one, two); */
-                        startAtLine   = Convert.ToInt32(one);
-                        stopAfterLine = Convert.ToInt32(two);
-                        /* Console.WriteLine("one = {0}, two = {1}", startAtLine, stopAfterLine); */
+                
+                        if (one == "")
+                            startAtLine = 1;
+                        else
+                            startAtLine = Convert.ToInt32(one);
+                        if (two == "")
+                            stopAfterLine = -1;
+                        else
+                            stopAfterLine = Convert.ToInt32(two);
+               
                     } else {
-                        string one = lineString;
+                        string one    = lineString;
                         startAtLine   = Convert.ToInt32(one);
                         stopAfterLine = Convert.ToInt32(one);
                     }
@@ -839,6 +875,14 @@ public class grepper
                 }
                 catch (System.FormatException f) {
                     throw new ArgumentException("Context after argument error: " + f.Message);
+                }
+            }
+            else if (IsTextSwitch(args[i], "cb")) {
+                try {
+                    beforeContextPrintLines = Convert.ToInt32(TextSwitchGetValue(args[i]));
+                }
+                catch (System.FormatException f) {
+                    throw new ArgumentException("Context before argument error: " + f.Message);
                 }
             }
             else if (IsTextSwitch(args[i], "cbs")) {
@@ -1111,7 +1155,7 @@ Reference.");
         }
     }
 
-    private void Run (string[] args)
+    public void Run ()
     {
         long filesScanned = 0;
 
@@ -1356,7 +1400,7 @@ Reference.");
                 // TODO: is that still the case?
                 while (contextQueue.Count > 0) {
                     long lineCount = currentLineNumber - contextQueue.Count;
-                    ConsoleEx.WriteLine(contextQueue.Dequeue(), file, lineCount);
+                    ConsoleEx.WriteMatchLine(contextQueue.Dequeue(), file, lineCount);
                 }
 
                 // Write file name and line number
@@ -1365,9 +1409,6 @@ Reference.");
 
                 afterMatchContext = afterContextPrintLines;
             } else {
-                // Add this line to the context queue
-                contextQueue.Enqueue(text);
-
                 // If we need to print context after a match, we do it here
                 if (afterMatchContext > 0) {
                     ConsoleEx.WriteMatchLine(text, file, currentLineNumber);
@@ -1376,6 +1417,9 @@ Reference.");
                     if (afterContextUntilString != null && text.IndexOf(afterContextUntilString, StringComparison.CurrentCultureIgnoreCase) >= 0) {
                         afterMatchContext = 0;
                     }
+                } else {
+                    // Add this line to the context queue
+                    contextQueue.Enqueue(text);
                 }
             }
         }
@@ -1545,8 +1589,12 @@ public class ConsoleSpinner
             /* sequence = "▁▃▅▆▇▇▆▅▃" */
         else if (sSequence == "flip")
             sequence = new [] {"_", "_", "_", "-", "`", "`", "'", "´", "-", "_", "_", "_"};
+        else if (sSequence == "flowers")
+            sequence = GetStringArray("❀❁❂❃❄❅❆❇❈");
         else if (sSequence == "dots2")
             sequence = GetStringArray("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏");
+        else if (sSequence == "smiley")
+            sequence = GetStringArray("😀😁😃😄");
         else if (sSequence == "dots3")
             sequence = new [] {"(*---------)",
                                "(-*--------)",
@@ -1665,17 +1713,39 @@ public class TreeWalker : IEnumerable<string>
     {
         foreach (string d in r) {
             string d2 = d.TrimEnd(Path.DirectorySeparatorChar);
-            string direname = Path.GetDirectoryName(d2);
-            string basename = Path.GetFileName(d2);
+            string direname;
+            string basename;
+            try {
+                direname = Path.GetDirectoryName(d2);
+                basename = Path.GetFileName(d2);
+            } catch (System.ArgumentException) {
+                direname = ".";
+                basename = d2;
+            }
+            if (direname == "")
+                direname = ".";
 
             var pattern = new TreeWalkerPattern(basename);
             Debug.WriteLine(String.Format("TreeWalker: adding directory {0} : {1}", direname, basename));
 
             if (pattern.isGlob) {
-                foreach(string dir in System.IO.Directory.GetDirectories(direname)) {
-                    if (pattern.Matches(Path.GetFileName(dir))) {
-                        directoriesToScan.Add(dir);
+                try {
+                    foreach(string dir in System.IO.Directory.GetDirectories(direname)) {
+                        if (pattern.Matches(Path.GetFileName(dir))) {
+                            directoriesToScan.Add(dir);
+                        }
                     }
+                }
+                catch (UnauthorizedAccessException e) {                    
+                    ConsoleEx.WriteErrorLine(e.Message);
+                    continue;
+                } catch (System.IO.DirectoryNotFoundException e) {
+                    ConsoleEx.WriteErrorLine(e.Message);
+                    continue;
+                } catch (System.ArgumentException e) {
+                    ConsoleEx.WriteErrorLine(e.Message);
+                    ConsoleEx.WriteErrorLine(String.Format("base: {0}, dir: {1}", basename, direname));
+                    continue;
                 }
             } else {
                 directoriesToScan.Add(d);
@@ -1737,6 +1807,10 @@ public class TreeWalker : IEnumerable<string>
             } catch (System.IO.DirectoryNotFoundException e) {
                 ConsoleEx.WriteErrorLine(e.Message);
                 continue;
+            } catch (System.ArgumentException e) {
+                ConsoleEx.WriteErrorLine(e.Message);
+                ConsoleEx.WriteErrorLine(String.Format("Currentdir: {0}", currentDir));
+                continue;
             }
 
             string[] files = null;
@@ -1750,6 +1824,8 @@ public class TreeWalker : IEnumerable<string>
                 continue;
             }
 
+            // Perform the required action on each file here. 
+            // Modify this block to perform your required task. 
             foreach (string file in files) {
                 try {
                     match = FileMatches(file);
@@ -2239,7 +2315,10 @@ public class LStreamReader : StreamReader
                 long numlines = -stopAfterLine;
                 while (numlines-- > 0) {
                     string s = base.ReadLine();
-                    if (s == null) break;
+                    if (s == null) {
+                        contextQueue.Clear();
+                        break;
+                    }
                     contextQueue.Enqueue(s);
 #if DEBUG
                     Debug.WriteLine("LStreamReader: Filling Buffer line: {0}", s);
