@@ -35,11 +35,16 @@ public static class ConsoleEx {
     private static object l = new object();
     private static Thread t;
     private static string _statusline;
-    private static bool _statusline_drawn = false;
-    private static bool _draw_statusline = false;
-    private static int _statusline_length = 0;
+    private static bool _statusline_drawn     = false;
+    private static bool _draw_statusline      = false;
+    private static int  _statusline_length    = 0;
+    private static int  _current_percentage   = 0;
+    private static bool _display_percentage   = false;
+    private static int  _rounded_percentage   = 0;
+    private static int  _percentage_increment = 1;
     public static ConsoleSpinner spinner = new ConsoleSpinner("slashes", 130);
     private static bool keepThrobbing = true;
+    private static Stopwatch stopwatch = new Stopwatch();
 
     static ConsoleEx() {
         t = new Thread(ShowThrobber);
@@ -207,29 +212,29 @@ public static class ConsoleEx {
 
                 if (grepper.showLineNumbers && showFile) {
                     SetFileColor();
-                    Console.Write (Util.FormatFileName(file));
+                    Console.Write(Util.FormatFileName(file));
                     ResetColor();
 
-                    Console.Write (" (");
+                    Console.Write(" (");
 
                     SetControlColor();
-                    Console.Write (linenumber);
+                    Console.Write(linenumber);
                     ResetColor();
-                    Console.Write ("): ");
+                    Console.Write("): ");
                 }
                 else if (grepper.showLineNumbers && !showFile) {
                     SetControlColor();
-                    Console.Write (linenumber);
+                    Console.Write(linenumber);
                     ResetColor();
 
-                    Console.Write (": ");
+                    Console.Write(": ");
                 }
                 else if (showFile) {
                     SetFileColor();
-                    Console.Write (Util.FormatFileName(file));
+                    Console.Write(Util.FormatFileName(file));
                     ResetColor();
 
-                    Console.Write (": ");
+                    Console.Write(": ");
                 }
 
                 grepper.m.printLineColor (line);
@@ -242,7 +247,50 @@ public static class ConsoleEx {
 
     public static string StatusLine
     {
-        set { _statusline = value; }
+        set {
+            if (_statusline != value) {
+                _statusline = value;
+                WriteStatusLine();
+            }
+        }
+    }
+
+    public static void ResetPercentage() {
+        _current_percentage = 0;
+        _display_percentage = false;
+        _percentage_increment = 1;
+        stopwatch.Restart();
+    }
+
+    public static int CurrentPercentage
+    {
+        set {
+            if (value != _current_percentage) {
+                // After a short while, decide what increment of percentage to use
+                if (_display_percentage == false & stopwatch.ElapsedMilliseconds > 100) {
+                    if (_current_percentage < 5) {
+                        _percentage_increment = 1;
+                        _display_percentage = true;
+                    } else if (_current_percentage < 10) {
+                        _percentage_increment = 5;
+                        _display_percentage = true;
+                    } else {
+                        // we're going to fast, don't show percentage
+                        stopwatch.Stop();
+                        stopwatch.Reset();
+                    }
+                }
+
+                _current_percentage = value;
+                if (value - value % _percentage_increment != _rounded_percentage) {
+                  _rounded_percentage = value - value % _percentage_increment;
+                  WriteStatusLine();
+                }
+            }
+        }
+        get {
+            return _current_percentage;
+        }
     }
 
     private static void _WriteStatusLine() {
@@ -252,7 +300,11 @@ public static class ConsoleEx {
 
         if (Console.BufferWidth > 0) {
             _statusline_drawn = true;
-            pstring = string.Format("\r {0}  {1}", spinner.GetCurrent(), _statusline);
+            if (_display_percentage) {
+                pstring = string.Format("\r {0} ({2:000}%) {1}", spinner.GetCurrent(), _statusline, _rounded_percentage);
+            } else {
+                pstring = string.Format("\r {0} {1}", spinner.GetCurrent(), _statusline);
+            }
 
             if (maxLength > 0) {
                 _statusline_length = Math.Min(pstring.Length, maxLength);
@@ -263,8 +315,10 @@ public static class ConsoleEx {
     }
 
     public static void WriteStatusLine() {
-        lock(l) {
-            _WriteStatusLine();
+        if (grepper.showProgress) {
+            lock(l) {
+                _WriteStatusLine();
+            }
         }
     }
 
@@ -303,6 +357,7 @@ public static class ConsoleEx {
         keepThrobbing = false;
         FlushStatusLine();
         t.Abort();
+        t.Join();
     }
 }
 
@@ -363,6 +418,7 @@ public enum SearchMode
 #if EXTERNALCODE
         , coded
 #endif
+        , listfiles
 };
 
 public class FixedSizedQueue<T> : Queue<T>
@@ -459,6 +515,7 @@ public class grepper
     string searchStringFile             = null;
     string xpathQuery                   = null;
     public static bool showColor        = true;
+    public static int max_line_length   = 123;
 
 #if EXTERNALCODE 
     string codeWalkerFileName       = null;
@@ -513,7 +570,7 @@ public class grepper
                 // TODO: On windows this seems to throw an argument exception, need to find out why exactly.
             }
 
-            // string exeDir = System.Reflection.Assembly.GetEntryAssembly().Location;
+            // get options fro .lgreprc
             string exeDir = AppDomain.CurrentDomain.BaseDirectory;
             Debug.WriteLine(String.Format("Exe directory: {0}", exeDir));
 
@@ -561,9 +618,6 @@ public class grepper
                 g.RunStdIn();
             else
                 g.Run();
-        }
-        catch (System.Security.SecurityException) {
-            g.Run();
         }
         catch (Exception e) {
             ConsoleEx.WriteErrorLine("Uncaught error: {0}", e.Message);
@@ -642,13 +696,7 @@ public class grepper
     protected static void cancelKeyPressHandler(object sender, ConsoleCancelEventArgs args)
     {
         ConsoleEx.CancelThrobber();
-        Console.WriteLine("Search aborted...");
-        //Console.WriteLine("  Key pressed: {0}", args.SpecialKey);
-        //Console.WriteLine("  Cancel property: {0}", args.Cancel);
-
-        // Set the Cancel property to true to prevent the process from terminating.
-        //Console.WriteLine("Setting the Cancel property to true...");
-        //args.Cancel = true;
+        ConsoleEx.WriteLine("Search aborted, CTRL-c pressed...");
     }
 
     private static string PrettyXML(string XML)
@@ -739,6 +787,9 @@ public class grepper
             }
             else if (IsOptionSwitch(args[i], "R1")) {
                 searchMode = SearchMode.regexUniLine;
+            }
+            else if (IsOptionSwitch(args[i], "LF")) {
+                searchMode = SearchMode.listfiles;
             }
 #if EXTERNALCODE
             else if (IsTextSwitch(args[i], "CS")) {
@@ -985,7 +1036,7 @@ public class grepper
             if (searchString == null)
                 throw new ArgumentException(String.Format("No Search string given..."));
 
-            if (searchMask == null && inputRedirected == false)
+            if (searchMask == null && inputRedirected == false && searchMode != SearchMode.listfiles)
                 throw new ArgumentException(String.Format("No Search Mask given..."));
         }
         else {
@@ -1137,6 +1188,16 @@ Reference.");
         // Contextqueue
         contextQueue = new FixedSizedQueue<string>(beforeContextPrintLines);
 
+        // Listfiles mode
+        if (searchMode == SearchMode.listfiles) {
+            // the search mask was actually a file mask, let's revert this
+            foreach (string s in searchStrings) {
+                searchMasks.Add(s);
+            }
+            Debug.WriteLine("SearchMasks    = {0}", string.Join(":", searchMasks));
+            Debug.WriteLine("SearchStrings  = {0}", string.Join(":", searchStrings));
+        }
+
         // Create the matcher
         if (searchStrings.Count > 0) {
             ComboMatcher cm = new ComboMatcher();
@@ -1178,9 +1239,9 @@ Reference.");
 #endif
 
             foreach (string file in tw) {
-                filesScanned++;
 
                 if (searchMode == SearchMode.regexUniLine) {
+                    filesScanned++;
                     string Content = File.ReadAllText(file);
                     MatchCollection matchList = Regex.Matches(Content, searchString, RegexOptions.Singleline);
                     foreach (Match match in matchList) {
@@ -1188,6 +1249,20 @@ Reference.");
                     }
                 } else {
                     try {
+                        /* skip know binary file extensions */
+                        /* TODO: make this an option */
+                        if (showBinary == false) {
+                            switch (Path.GetExtension(file)) {
+                                case ".o":  continue;
+                                case ".exe": continue;
+                                case ".dll": continue;
+                                case ".z": continue;
+                                case ".zip": continue;
+                                case ".gz": continue;
+                            }
+                        }
+
+                        filesScanned++;
                         using (FileStream f = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite)) {
                             System.Text.Encoding encoding = System.Text.Encoding.Default;
 
@@ -1201,13 +1276,17 @@ Reference.");
                             if (xpathQuery != null)
                                 ProcessXMLFile(file, f);
                             else {
-                                if (skipPerc > 0)
-                                    f.Seek((long) ((double)skipPerc / 100.0 * f.Length), SeekOrigin.Begin);
-                                else
-                                    f.Seek (skipBytes, SeekOrigin.Begin);
+                                if (searchMode == SearchMode.listfiles) {
+                                    ConsoleEx.WriteLine(file);
+                                } else {
+                                    if (skipPerc > 0)
+                                        f.Seek((long) ((double)skipPerc / 100.0 * f.Length), SeekOrigin.Begin);
+                                    else
+                                        f.Seek (skipBytes, SeekOrigin.Begin);
 
-                                using (StreamReader s = new LStreamReader(f, startAtLine, stopAfterLine)) {
-                                    ProcessWithReader(s, file, f);
+                                    using (StreamReader s = new LStreamReader(f, startAtLine, stopAfterLine)) {
+                                        ProcessWithReader(s, file, f);
+                                    }
                                 }
                             }
                         }
@@ -1319,7 +1398,7 @@ Reference.");
                 if (!showNonMatching) {
                     if (showFileName == true)
                         ConsoleEx.SetFileColor();
-                        ConsoleEx.Write ("{0}:", formattedFileName);
+                        ConsoleEx.Write("{0}:", formattedFileName);
                         ConsoleEx.ResetColor();
 
                     if (xmlPrettyPrint) {
@@ -1334,7 +1413,7 @@ Reference.");
                 if (showNonMatching) {
                     if (showFileName == true) {
                         ConsoleEx.SetFileColor();
-                        ConsoleEx.Write ("\r{0}:", formattedFileName);
+                        ConsoleEx.Write("\r{0}:", formattedFileName);
                         ConsoleEx.ResetColor();
                     }
                     m.printLineColor(node.OuterXml);
@@ -1343,43 +1422,53 @@ Reference.");
         }
     }
 
+    public static IEnumerable<string> ReadLines(StreamReader reader)
+    {
+        string line;
+        while ((line = reader.ReadLine()) != null)
+        {
+            yield return line;
+        }
+    }
+
     private void ProcessWithReader(StreamReader s, string file, FileStream f) {
         long currentLineNumber = 0;
         int  afterMatchContext = 0;
         int  matchCount        = 0;
         bool fileNamePrinted   = false;
-        string text;
+        /* string text; */
 
         LStreamReader lfr = s as LStreamReader;
         if (lfr != null) currentLineNumber = lfr.CurrentLine;
 
         if (showProgress) {
             ConsoleEx.StatusLine = string.Format("processing file {0}", Util.FormatFileName(file));
+            ConsoleEx.ResetPercentage();
         }
 
-        while ((text = s.ReadLine()) != null) {
+        /* while ((text = s.ReadLine()) != null) { */
+        foreach(string text in ReadLines(s)) {
             currentLineNumber++;
-            /* Thread.Sleep(10); */
 
-            // TODO: what if f == null? Is that the case when reading from stdin?
             // Is this line slowing down the search when /progress is activated?
             if (showProgress && f != null) { 
-                ConsoleEx.StatusLine = string.Format("processing file ({0:P0}) {1}", (double)f.Position/(double)f.Length, Util.FormatFileName(file));
+                ConsoleEx.CurrentPercentage = Convert.ToInt32((double)f.Position/(double)f.Length * 100.0);
             }
 
             if (m.matches (text) ^ showNonMatching) {
-                if (!fileNamePrinted && (showOnlyFileName || showFileNameOnce && !showCount)) {
+                if (showOnlyFileName) {
+                    ConsoleEx.WriteLine("{0}", Util.FormatFileName(file));
+                    break;
+                }
+
+                if (!fileNamePrinted && showFileNameOnce && !showCount) {
                     fileNamePrinted = true;
-                    if (showOnlyFileName) {
-                        ConsoleEx.WriteLine("{0}", Util.FormatFileName(file));
-                        break;
-                    }
                     ConsoleEx.SetFileColor();
                     ConsoleEx.WriteLine("{0}", Util.FormatFileName(file));
                     ConsoleEx.ResetColor();
                 }
 
-                // print context: look for the appearance of the string and remove the part before if found
+                // print context before: look for the appearance of the string and remove the part before if found
                 if (beforeContextUntilString != null) {
                     int matches = 0;
                     int lineno = 0;
@@ -1393,11 +1482,7 @@ Reference.");
                         contextQueue.Dequeue();
                 }
 
-                // print context 
-                // There is a bug with the line number when the
-                // /CBS is used.  In combination with context before and after,
-                // we may print the same line twice.
-                // TODO: is that still the case?
+                // print context before a match
                 while (contextQueue.Count > 0) {
                     long lineCount = currentLineNumber - contextQueue.Count;
                     ConsoleEx.WriteMatchLine(contextQueue.Dequeue(), file, lineCount);
@@ -1594,7 +1679,7 @@ public class ConsoleSpinner
         else if (sSequence == "dots2")
             sequence = GetStringArray("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏");
         else if (sSequence == "smiley")
-            sequence = GetStringArray("😀😁😃😄");
+            sequence = GetStringArray("🙂😀😁");
         else if (sSequence == "dots3")
             sequence = new [] {"(*---------)",
                                "(-*--------)",
@@ -1668,7 +1753,6 @@ public class TreeWalker : IEnumerable<string>
             else
                 isGlob = false;
 
-            // TODO: Why do we need the single line regex option here?
             if (isGlob) {
                 regex = new Regex(
                         "^" + Regex.Escape(pattern).Replace(@"\*", ".*").Replace(@"\?", ".") + "$",
@@ -1781,13 +1865,13 @@ public class TreeWalker : IEnumerable<string>
             dirs.Push(dir);
         }
 
-        ConsoleEx.StatusLine = "scanning directories";
+        /* ConsoleEx.StatusLine = "scanning directories"; */
 
         while (dirs.Count > 0) {
             string currentDir = dirs.Pop();
             string[] subDirs;
 
-            ConsoleEx.StatusLine = "scanning directory " + currentDir;
+            ConsoleEx.StatusLine = "processing dir " + currentDir;
 
             try {
                 subDirs = System.IO.Directory.GetDirectories (currentDir);
@@ -1813,9 +1897,11 @@ public class TreeWalker : IEnumerable<string>
                 continue;
             }
 
-            string[] files = null;
+            /* string[] files = null; */
+            IEnumerable<string> files;
             try {
-                files = System.IO.Directory.GetFiles (currentDir);
+                /* files = System.IO.Directory.GetFiles (currentDir); */
+                files = System.IO.Directory.EnumerateFiles (currentDir);
             } catch (UnauthorizedAccessException e) {
                 ConsoleEx.WriteErrorLine(e.Message);
                 continue;
@@ -1836,7 +1922,6 @@ public class TreeWalker : IEnumerable<string>
 
                 if (match) {
                     Debug.WriteLine(String.Format("Scanning file {0}", file));
-                    ConsoleEx.StatusLine = "scanning file " + Util.FormatFileName(file);
 #if DEBUG
                     // avoid endless loop when debugging
                     if (file.Contains("lgrep.dbg")) continue;
@@ -1990,28 +2075,55 @@ public class StringMatcher: Matcher
 
     public override void printLineColor (string text)
     {
-        int ind;
+        int ind = 0;
+        int max = 0;
+
         if (searchString == "") {
-            Console.WriteLine(text);
+            ConsoleEx.WriteLine(text);
             return;
+        }
+
+        /* prevent long lines from filling up the terminal */
+        if (grepper.max_line_length < text.Length) {
+            /* find the index of the first match */
+            ind = text.IndexOf(searchString, scase);
+            if (ind > 0) {
+                ind = Math.Max(1, ind - grepper.max_line_length / 3);
+                max = Math.Min(text.Length - ind, grepper.max_line_length);
+                if (ind == 1) {
+                    text = text.Substring(ind, max);
+                } else {
+                    ConsoleEx.SetControlColor();
+                    ConsoleEx.Write("...");
+                    text = text.Substring(ind, max);
+                }
+            }
         }
 
         try {
             while ((ind = text.IndexOf(searchString, scase)) >= 0) {
                 ConsoleEx.ResetColor();
-                Console.Write ("{0}", text.Substring (0, ind));
+                Console.Write("{0}", text.Substring (0, ind));
 
                 ConsoleEx.SetMatchColor();
-                Console.Write ("{0}", text.Substring (ind, searchString.Length));
+                Console.Write("{0}", text.Substring (ind, searchString.Length));
 
                 text = text.Substring (ind + searchString.Length);
             }
 
             ConsoleEx.ResetColor();
-            if (text.Length > 0)
-                Console.WriteLine(text);
-            else
-                Console.Write (Environment.NewLine);
+
+            if (text.Length > 0) {
+                Console.Write(text);
+            }
+
+            if (max == grepper.max_line_length) {
+                ConsoleEx.SetControlColor();
+                ConsoleEx.Write("...");
+            }
+            ConsoleEx.ResetColor();
+
+            Console.Write(Environment.NewLine);
         }
         catch (Exception) {
             //StackTrace st = new StackTrace(ex, true);
@@ -2042,11 +2154,11 @@ class BeginMatcher: StringMatcher
         }
 
         ConsoleEx.SetMatchColor();
-        Console.Write ("{0}", text.Substring (0, searchString.Length));
+        Console.Write("{0}", text.Substring (0, searchString.Length));
 
         ConsoleEx.ResetColor ();
-        Console.Write ("{0}", text.Substring (searchString.Length));
-        Console.Write (Environment.NewLine);
+        Console.Write("{0}", text.Substring (searchString.Length));
+        Console.Write(Environment.NewLine);
     }
 }
 
@@ -2074,11 +2186,11 @@ class EndMatcher: StringMatcher
         int ind = text.LastIndexOf (searchString, scase);
 
         ConsoleEx.ResetColor ();
-        Console.Write ("{0}", text.Substring (0, ind));
+        Console.Write("{0}", text.Substring (0, ind));
 
         ConsoleEx.SetMatchColor();
-        Console.Write ("{0}", text.Substring (ind));
-        Console.Write (Environment.NewLine);
+        Console.Write("{0}", text.Substring (ind));
+        Console.Write(Environment.NewLine);
 
         ConsoleEx.ResetColor();
     }
@@ -2108,11 +2220,11 @@ class WholeLineMatcher: StringMatcher
         int ind = text.LastIndexOf (searchString, scase);
 
         ConsoleEx.ResetColor();
-        Console.Write ("{0}", text.Substring (0, ind));
+        Console.Write("{0}", text.Substring (0, ind));
 
         ConsoleEx.SetMatchColor();
-        Console.Write ("{0}", text.Substring (ind));
-        Console.Write (Environment.NewLine);
+        Console.Write("{0}", text.Substring (ind));
+        Console.Write(Environment.NewLine);
 
         ConsoleEx.ResetColor();
     }
@@ -2147,11 +2259,11 @@ class RegexMatcher: Matcher
             Debug.WriteLine(String.Format("currentIndex : {0}, value : {1}, index : {2}", currentIndex, match.Value, match.Index));
             Debug.WriteLine(String.Format("printing ' {0}'", text.Substring (currentIndex, match.Index - currentIndex)));
             ConsoleEx.ResetColor();
-            Console.Write ("{0}", text.Substring (currentIndex, match.Index - currentIndex));
+            Console.Write("{0}", text.Substring (currentIndex, match.Index - currentIndex));
 
             ConsoleEx.SetMatchColor();
             Debug.WriteLine(String.Format("printing ' {0}'", match.Value));
-            Console.Write ("{0}",  match.Value);
+            Console.Write("{0}",  match.Value);
             ConsoleEx.ResetColor();
 
             currentIndex = match.Index + match.Value.Length;
