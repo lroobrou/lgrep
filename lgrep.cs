@@ -1361,7 +1361,7 @@ Reference.");
             currentLineNumber++;
             /* Thread.Sleep(10); */
 
-            // TODO: what if f == null? Is that the case when readong from stdin?
+            // TODO: what if f == null? Is that the case when reading from stdin?
             if (showProgress && f != null) { 
                 ConsoleEx.StatusLine = string.Format("processing file ({0:P0}) {1}", (double)f.Position/(double)f.Length, Util.FormatFileName(file));
             }
